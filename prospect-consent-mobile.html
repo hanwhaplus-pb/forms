@@ -690,19 +690,13 @@ function openPadModal(target){
     modalPad.resize();
     modalPad.clear();
 
-    // 최종 배치 시 얼마나 확대/축소되는지 미리 계산해서 동일한 두께로 보이도록 보정.
-    // (이름칸/서명칸은 종이 서식에서 크기가 서로 달라서, 배치용 계산을 그대로 펜
-    //  굵기에 쓰면 두 칸에서 펜 느낌이 서로 다르게 느껴진다. 그래서 "펜이 얼마나
-    //  굵게 보이는지"는 항상 이름칸 기준 하나로 통일해서 두 칸 모두 동일한 펜
-    //  두께로 써지도록 하고, 실제 칸에 배치되는 크기/위치 계산은 기존 그대로 둔다.)
-    const finalObj = target === 'name' ? nameFinal : signFinal;
-    finalObj.resize();
-    nameFinal.resize();
-    const areaRect = finalObj.el.getBoundingClientRect();
-    const penRefRect = nameFinal.el.getBoundingClientRect();
-    const boost = target === 'sign' ? SIG_BOOST : 1;
+    // 화면에서 두껍게 그린 뒤 나중에 작은 종이 칸으로 "축소"하면 선이 매끈하게
+    // 다듬어지지만(안티에일리어싱), 반대로 얇게 그려서 나중에 인쇄용 큰 해상도로
+    // "확대"하면 선이 깨지고 점선처럼 보인다. 그래서 항상 더 작은 서명(인)칸을
+    // 기준으로 두껍게 그리도록 계산해서(이름칸에 놓일 때도 동일 기준 사용),
+    // 이름/서명 모두 나중에 축소되며 매끈하게 표현되도록 한다.
+    const penRefRect = signFinal.el.getBoundingClientRect();
     const pRect = modalPadCanvas.getBoundingClientRect();
-    const placeScale = containScale(pRect, areaRect.width, areaRect.height) * boost;
     const penScale = containScale(pRect, penRefRect.width, penRefRect.height);
     modalPad.setStrokeRange(FINAL_MIN / penScale, FINAL_MAX / penScale);
   }, 30);
