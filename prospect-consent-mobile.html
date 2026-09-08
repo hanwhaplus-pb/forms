@@ -600,7 +600,11 @@ function makeFinalCanvas(canvasEl){
   const obj = { hasContent:false };
   obj.resize = function(){
     const rect = canvasEl.getBoundingClientRect();
-    const ratio = window.devicePixelRatio || 1;
+    // 이름/서명 칸은 화면에서 아주 작게 표시되기 때문에(특히 서명(인)칸),
+    // 화면 배율(devicePixelRatio)만 따르면 실제 저장되는 픽셀 수가 너무 적어서
+    // 나중에 인쇄용 큰 해상도로 확대할 때 선이 깨져 보인다. 그래서 최소 4배
+    // 해상도를 확보해 펜은 평소 두께 그대로 두고도 매끈하게 나오도록 한다.
+    const ratio = Math.max(window.devicePixelRatio || 1, 4);
     canvasEl.width = Math.max(Math.round(rect.width * ratio) || 0, 10);
     canvasEl.height = Math.max(Math.round(rect.height * ratio) || 0, 10);
     c.setTransform(1, 0, 0, 1, 0, 0);
@@ -653,7 +657,7 @@ function makePad(canvasEl){
     const target = Math.max(pad.minW, pad.maxW - speed*BP_SENS);
     pad.currentWidth = pad.currentWidth*0.65 + target*0.35;
     c.lineCap='round'; c.lineJoin='round';
-    c.strokeStyle = '#111'; c.globalAlpha = 0.9; c.lineWidth = pad.currentWidth;
+    c.strokeStyle = '#000'; c.globalAlpha = 1; c.lineWidth = pad.currentWidth;
     c.beginPath(); c.moveTo(pad.lastPos.x,pad.lastPos.y); c.lineTo(pos.x,pos.y); c.stroke();
     c.globalAlpha = 1;
     pad.lastPos = pos; pad.lastTime = ts;
@@ -690,15 +694,9 @@ function openPadModal(target){
     modalPad.resize();
     modalPad.clear();
 
-    // 화면에서 두껍게 그린 뒤 나중에 작은 종이 칸으로 "축소"하면 선이 매끈하게
-    // 다듬어지지만(안티에일리어싱), 반대로 얇게 그려서 나중에 인쇄용 큰 해상도로
-    // "확대"하면 선이 깨지고 점선처럼 보인다. 그래서 항상 더 작은 서명(인)칸을
-    // 기준으로 두껍게 그리도록 계산해서(이름칸에 놓일 때도 동일 기준 사용),
-    // 이름/서명 모두 나중에 축소되며 매끈하게 표현되도록 한다.
-    const penRefRect = signFinal.el.getBoundingClientRect();
-    const pRect = modalPadCanvas.getBoundingClientRect();
-    const penScale = containScale(pRect, penRefRect.width, penRefRect.height);
-    modalPad.setStrokeRange(FINAL_MIN / penScale, FINAL_MAX / penScale);
+    // 이제 칸 해상도 자체를 높였으므로(위 obj.resize 참고), 펜 두께는
+    // 이름/서명 모두 평소 필기감에 맞는 편안한 값으로 고정해서 사용한다.
+    modalPad.setStrokeRange(2.4, 3.6);
   }, 30);
 }
 document.addEventListener('click', function(e){
@@ -715,7 +713,7 @@ document.getElementById('modalDoneBtn').addEventListener('click', ()=>{
       const finalObj = padTarget === 'name' ? nameFinal : signFinal;
       const box = padTarget === 'name' ? nameBox : signBox;
       const hint = padTarget === 'name' ? nameHint : signHint;
-      const boost = padTarget === 'sign' ? SIG_BOOST : 1;
+      const boost = 1;
 
       finalObj.resize();
       finalObj.ctx.clearRect(0,0,finalObj.el.width,finalObj.el.height);
@@ -723,7 +721,11 @@ document.getElementById('modalDoneBtn').addEventListener('click', ()=>{
       const padRect = modalPadCanvas.getBoundingClientRect();
 
       if(areaRect.width > 0 && areaRect.height > 0 && padRect.width > 0 && padRect.height > 0){
-        const scale = containScale(padRect, areaRect.width, areaRect.height) * boost;
+        // 서명(인)은 폭을 칸에 꽉 채워서 너무 작아 보이지 않게 하고(세로는 남거나
+        // 살짝 넘쳐도 무방), 이름은 기존처럼 칸 안에 온전히 들어가도록 한다.
+        const scale = padTarget === 'sign'
+          ? (areaRect.width / padRect.width) * boost
+          : containScale(padRect, areaRect.width, areaRect.height) * boost;
         const drawW = padRect.width * scale;
         const drawH = padRect.height * scale;
         if(isFinite(drawW) && isFinite(drawH) && drawW > 0 && drawH > 0){
