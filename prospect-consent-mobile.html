@@ -1115,16 +1115,11 @@ function showOverlayDone(){
   document.getElementById('ovBody').innerHTML = `
     <div class="mark">✓</div>
     <h3>저장 완료</h3>
-    <p>동의서 PDF가 다운로드되었습니다.<br>다음 고객을 위해 화면을 초기화할까요?</p>
+    <p>동의서 PDF가 다운로드되었습니다.</p>
     <div class="actions">
-      <button id="closeOv">닫기</button>
-      <button class="primary" id="nextCustomer">다음 고객</button>
+      <button class="primary" id="closeOv">확인</button>
     </div>`;
   document.getElementById('closeOv').addEventListener('click', ()=> document.getElementById('overlay').classList.remove('show'));
-  document.getElementById('nextCustomer').addEventListener('click', ()=>{
-    document.getElementById('overlay').classList.remove('show');
-    resetForm();
-  });
 }
 function resetForm(){
   document.querySelectorAll('.txt').forEach(i=>i.value='');
