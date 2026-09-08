@@ -356,6 +356,21 @@
   </div>
 </div>
 
+<!-- 최종 제출 완료 후, 실제로 접수된 PDF 내용을 고객이 직접 확인할 수 있도록 보여주는 팝업 -->
+<div class="modal-overlay" id="previewModal">
+  <div class="modal-card" style="max-width:420px;">
+    <h3 id="previewModalTitle">제출 완료</h3>
+    <p id="previewModalBody" style="font-size:13px; color:#555; line-height:1.7; white-space:pre-wrap; margin-bottom:12px;"></p>
+    <div style="border:1.3px solid #ddd; border-radius:8px; overflow:hidden; max-height:55vh; overflow-y:auto; background:#f7f6f3;">
+      <img id="previewModalImg" style="width:100%; display:block;" alt="제출된 동의서 미리보기">
+    </div>
+    <p style="font-size:11.5px; color:#999; margin:8px 0 0;">실제로 접수된 동의서 내용입니다. 화면을 손가락으로 눌러 확대해 확인할 수 있습니다.</p>
+    <div class="modal-actions" style="margin-top:12px;">
+      <button class="primary" id="previewModalOk">확인</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function initConsentForm(){
 
@@ -411,7 +426,45 @@ function showMessage(title, body, opts){
   modal.classList.add('show');
 }
 
+/* 제출 완료 시, 방금 접수된 PDF와 동일한 내용을 미리보기 이미지로 함께 보여준다.
+   imageDataUrl이 없으면(=미리보기를 만들지 못한 경우) 안내 문구만 보여주는 기존 방식으로 대체한다. */
+let previewModalConfirmCb = null;
+function showSubmitPreview(title, body, imageDataUrl, opts){
+  opts = opts || {};
+  const modal = document.getElementById('previewModal');
+  const titleEl = document.getElementById('previewModalTitle');
+  const bodyEl = document.getElementById('previewModalBody');
+  const imgEl = document.getElementById('previewModalImg');
+  const imgWrap = imgEl ? imgEl.parentElement : null;
+  if(!modal || !titleEl || !bodyEl || !imgEl){
+    showMessage(title, body, opts);
+    return;
+  }
+  if(!imageDataUrl){
+    // 미리보기 이미지를 만들지 못한 경우에는 팝업 대신 기존 안내 문구만 보여준다.
+    showMessage(title, body, opts);
+    return;
+  }
+  titleEl.textContent = title;
+  bodyEl.textContent = body;
+  imgEl.src = imageDataUrl;
+  if(imgWrap) imgWrap.style.display = '';
+  previewModalConfirmCb = opts.onConfirm || null;
+  modal.classList.add('show');
+}
+
 document.addEventListener('click', function(e){
+  if(e.target.closest('#previewModalOk')){
+    document.getElementById('previewModal').classList.remove('show');
+    const cb = previewModalConfirmCb; previewModalConfirmCb = null;
+    if(cb) cb();
+    return;
+  }
+  if(e.target && e.target.id === 'previewModal'){
+    document.getElementById('previewModal').classList.remove('show');
+    previewModalConfirmCb = null;
+    return;
+  }
   if(e.target.closest('#msgModalOk')){
     document.getElementById('msgModal').classList.remove('show');
     const cb = msgModalConfirmCb; msgModalConfirmCb = null;
@@ -964,7 +1017,9 @@ async function buildPdfBytesAndName(){
   const name = document.getElementById('name').value.trim() || '고객';
   const d = new Date();
   const stamp = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}`;
-  return { bytes: pdfBytes, filename: `가망고객_개인정보동의서_${name}_${stamp}.pdf` };
+  /* previewDataUrl: 실제 PDF 안에 그대로 들어가는 이미지(JPEG)와 동일한 내용이므로,
+     고객에게 "최종 제출된 내용"을 그대로 미리보기로 보여줄 때 사용한다. */
+  return { bytes: pdfBytes, filename: `가망고객_개인정보동의서_${name}_${stamp}.pdf`, previewDataUrl: jpegDataUrl };
 }
 
 /* "PDF로 저장" 버튼용: PDF를 만들어 바로 다운로드 폴더에 저장 */
@@ -1018,12 +1073,16 @@ async function registerSeminar(){
   throw new Error(j && j.error ? j.error : '등록 저장 실패');
 }
 
+/* 방금 제출한 동의서 PDF 미리보기(원본과 동일한 이미지)를 담아두는 전역 변수.
+   제출 성공 후 "최종 제출되었습니다" 안내와 함께 고객에게 그대로 보여주는 데 쓴다. */
+let lastSubmittedPreview = null;
+
 async function submitConsent(){
   if(!APPS_SCRIPT_URL || APPS_SCRIPT_URL === "YOUR_APPS_SCRIPT_WEB_APP_URL_HERE"){
     throw new Error('전송 설정이 되어 있지 않습니다.');
   }
 
-  const { bytes, filename } = await buildPdfBytesAndName();
+  const { bytes, filename, previewDataUrl } = await buildPdfBytesAndName();
   const blob = new Blob([bytes], { type: 'application/pdf' });
   const name = document.getElementById('name').value.trim() || '고객';
   const phone = document.getElementById('mobile').value.trim() || document.getElementById('phone').value.trim() || '';
@@ -1040,6 +1099,9 @@ async function submitConsent(){
      네트워크 전송 자체가 오류 없이 끝나면 정상적으로 서버에 도달한 것으로 처리한다.
      (오프라인이거나 URL이 잘못된 경우 등 네트워크 단계 오류는 여기서 catch되어 실패로 처리된다) */
   await fetch(APPS_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: fd });
+
+  // 전송이 끝난 뒤에야 "성공적으로 제출된 내용"으로 확정해 미리보기용으로 저장한다.
+  lastSubmittedPreview = { imageDataUrl: previewDataUrl, pdfBlob: blob, filename };
 }
 
 function showOverlayLoading(){
@@ -1221,17 +1283,19 @@ document.getElementById('exportBtn').addEventListener('click', async ()=>{
 
     document.getElementById('overlay').classList.remove('show');
 
+    const previewUrl = lastSubmittedPreview ? lastSubmittedPreview.imageDataUrl : null;
+
     if(reg === 'ok'){
-      showMessage('접수 완료',
+      showSubmitPreview('접수 완료',
         '동의서 제출과 참가 등록이 모두 완료되었습니다.\n\n' +
         '상세 안내를 위해 PLUS PB가 별도로 연락드릴 예정입니다.\n' +
-        '등록 화면으로 돌아가실 필요는 없습니다.');
+        '등록 화면으로 돌아가실 필요는 없습니다.', previewUrl);
     }else if(reg === 'fail'){
-      showMessage('동의서만 접수됨',
+      showSubmitPreview('동의서만 접수됨',
         '동의서는 정상 접수되었으나, 참가 등록 저장에 실패했습니다.\n\n' +
-        '등록 화면으로 돌아가 "등록 완료"를 눌러주세요.');
+        '등록 화면으로 돌아가 "등록 완료"를 눌러주세요.', previewUrl);
     }else{
-      showMessage('제출 완료', '제출이 완료되었습니다. 감사합니다.');
+      showSubmitPreview('제출 완료', '제출이 완료되었습니다. 감사합니다.', previewUrl);
     }
   }catch(err){
     document.getElementById('overlay').classList.remove('show');
