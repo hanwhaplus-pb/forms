@@ -153,11 +153,14 @@
   .m-chip.disabled{ opacity:.45; cursor:not-allowed; }
   .m-sigbox{
     border:1.3px dashed #B9B2A4; background:#FCFBF9; border-radius:8px; height:64px;
-    display:flex; align-items:center; justify-content:center; cursor:pointer; overflow:hidden; position:relative;
+    cursor:pointer; overflow:hidden; position:relative;
   }
   .m-sigbox.invalid{ border-color:#C0392B; }
-  .m-sigbox .m-hint{ font-size:12.5px; color:#B4794A; }
-  .m-sigbox canvas{ width:100%; height:100%; }
+  .m-sigbox .m-hint{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:12.5px; color:#B4794A; text-align:center; white-space:nowrap; padding:0 10px; pointer-events:none;
+  }
+  .m-sigbox canvas{ position:absolute; inset:0; width:100%; height:100%; }
   .m-link{ font-size:12.5px; color:#666; text-decoration:underline; background:none; border:none; padding:0; cursor:pointer; }
 </style>
 
@@ -246,7 +249,7 @@
 
   <div class="m-field">
     <label>서명(인) <span class="req">*</span></label>
-    <div class="m-sigbox" id="m-signBox">
+    <div class="m-sigbox" id="m-signBox" style="max-width:180px; margin:0 auto;">
       <span class="m-hint" id="m-signHint">탭하여 서명 작성</span>
       <canvas id="m-signPreview"></canvas>
     </div>
@@ -687,14 +690,21 @@ function openPadModal(target){
     modalPad.resize();
     modalPad.clear();
 
-    // 최종 배치 시 얼마나 확대/축소되는지 미리 계산해서 동일한 두께로 보이도록 보정
+    // 최종 배치 시 얼마나 확대/축소되는지 미리 계산해서 동일한 두께로 보이도록 보정.
+    // (이름칸/서명칸은 종이 서식에서 크기가 서로 달라서, 배치용 계산을 그대로 펜
+    //  굵기에 쓰면 두 칸에서 펜 느낌이 서로 다르게 느껴진다. 그래서 "펜이 얼마나
+    //  굵게 보이는지"는 항상 이름칸 기준 하나로 통일해서 두 칸 모두 동일한 펜
+    //  두께로 써지도록 하고, 실제 칸에 배치되는 크기/위치 계산은 기존 그대로 둔다.)
     const finalObj = target === 'name' ? nameFinal : signFinal;
     finalObj.resize();
+    nameFinal.resize();
     const areaRect = finalObj.el.getBoundingClientRect();
+    const penRefRect = nameFinal.el.getBoundingClientRect();
     const boost = target === 'sign' ? SIG_BOOST : 1;
     const pRect = modalPadCanvas.getBoundingClientRect();
-    const scale = containScale(pRect, areaRect.width, areaRect.height) * boost;
-    modalPad.setStrokeRange(FINAL_MIN / scale, FINAL_MAX / scale);
+    const placeScale = containScale(pRect, areaRect.width, areaRect.height) * boost;
+    const penScale = containScale(pRect, penRefRect.width, penRefRect.height);
+    modalPad.setStrokeRange(FINAL_MIN / penScale, FINAL_MAX / penScale);
   }, 30);
 }
 document.addEventListener('click', function(e){
@@ -1135,7 +1145,20 @@ function refreshMobileSigPreview(target){
   pctx.setTransform(1,0,0,1,0,0);
   pctx.scale(ratio, ratio);
   pctx.clearRect(0,0,rect.width,rect.height);
-  pctx.drawImage(finalObj.el, 0, 0, rect.width, rect.height);
+  /* 실제 종이 서식의 서명란(특히 "서명(인)")은 도장처럼 아주 작게 인쇄되도록
+     설계되어 있어서, 그 칸에 맞춰 만들어진 최종본(finalObj)은 일부러 두껍게/
+     일부 잘리게 그려진다(인쇄상 정상). 모바일 화면 미리보기에서는 이 잘린
+     최종본 대신, 방금 서명 패드에 그렸던 원본(modalPadCanvas)을 비율 유지한
+     채(자르지 않고) 그대로 축소해서 보여준다 → 미리보기만 깨끗하게 보이고,
+     실제 PDF에 들어가는 최종본은 기존과 동일하게 유지된다. */
+  if(modalPadCanvas.width > 0 && modalPadCanvas.height > 0){
+    var scale = containScale({width: modalPadCanvas.width, height: modalPadCanvas.height}, rect.width, rect.height);
+    var dw = modalPadCanvas.width * scale;
+    var dh = modalPadCanvas.height * scale;
+    var dx = (rect.width - dw) / 2;
+    var dy = (rect.height - dh) / 2;
+    pctx.drawImage(modalPadCanvas, dx, dy, dw, dh);
+  }
   if(hintEl) hintEl.style.display = 'none';
   if(boxEl) boxEl.classList.remove('invalid');
 }
