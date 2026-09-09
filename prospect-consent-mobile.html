@@ -275,14 +275,14 @@
   </div>
 
   <div class="m-field">
-    <label>[선택] 마케팅 활용 동의</label>
+    <label>[선택] 개인정보 수집·이용 동의</label>
     <div class="m-radio-row m-radio-consent">
       <div class="m-radio" id="m-opt-y" data-target-chk="chk-opt-y"><span class="dot"></span>예, 동의합니다.</div>
       <div class="m-radio" id="m-opt-n" data-target-chk="chk-opt-n"><span class="dot"></span>아니요, 동의하지 않습니다.</div>
     </div>
     <p class="m-note">
-      <b>수집·이용 항목</b> 주소, 팩스, 직장정보, 이메일, 생년월일, 성별<br>
-      <b>수집·이용 목적</b> 금융서비스 홍보 및 상품·서비스 안내, 판매 권유 등 마케팅 목적 연락<br>
+      <b>수집·이용 목적</b> 상품·서비스 안내 및 마케팅 활용<br>
+      <b>수집·이용 항목</b> 주소, 이메일<br>
       <b>보유·이용 기간</b> 동의일로부터 1년
     </p>
   </div>
@@ -294,7 +294,6 @@
       <div class="m-check" id="m-ch-sms" data-target-chk="chk-ch-sms"><span class="tick"></span>SMS</div>
       <div class="m-check" id="m-ch-email" data-target-chk="chk-ch-email"><span class="tick"></span>E-mail</div>
       <div class="m-check" id="m-ch-tm" data-target-chk="chk-ch-tm"><span class="tick"></span>TM</div>
-      <div class="m-check" id="m-ch-fax" data-target-chk="chk-ch-fax"><span class="tick"></span>FAX</div>
     </div>
     <div class="m-check-row m-check-sub">
       <div class="m-check" id="m-ch-night" data-target-chk="chk-ch-night"><span class="tick"></span>야간광고동의</div>
@@ -597,7 +596,9 @@ function handleGroupChkClick(el){
 
 /* 필수정보(reqConsent)가 미동의로 바뀌면:
    - 마케팅 수신동의(선택정보/optConsent)도 자동으로 미동의로 전환
-   - optConsent 버튼 자체와 그 아래 모든 채널 선택지를 잠금(클릭 불가) */
+   - optConsent 버튼 자체와 그 아래 모든 채널 선택지를 잠금(클릭 불가)
+   반대로 필수정보에 "동의"하는 것은 선택정보(마케팅 활용) 동의와는 별개이므로,
+   여기서 선택정보를 자동으로 "동의" 처리하지 않는다. 잠금만 풀고 고객이 직접 선택하게 한다. */
 function updateRequiredGating(){
   const locked = state.reqConsent === '미동의';
 
@@ -617,27 +618,32 @@ function updateRequiredGating(){
   } else {
     document.querySelectorAll('.chk[data-channel]').forEach(b=> b.classList.remove('disabled'));
 
-    // 필수정보 동의 시 선택정보 동의 및 마케팅 채널도 함께 동의 처리
-    state.optConsent = '동의';
-    document.getElementById('chk-opt-y').classList.add('on');
-    document.getElementById('chk-opt-n').classList.remove('on');
+    // 필수정보 동의는 선택정보(마케팅 활용) 동의를 자동으로 만들지 않는다.
+    // 필수정보가 미동의 -> 동의로 바뀔 때만 선택정보를 초기화해서 고객이 다시 직접 선택하게 한다.
+    if(state.optConsent === '미동의' || state.optConsent === null){
+      state.optConsent = null;
+      document.getElementById('chk-opt-y').classList.remove('on');
+      document.getElementById('chk-opt-n').classList.remove('on');
 
-    state.channels = new Set(['SMS','TM']);
-    document.querySelectorAll('.chk[data-channel]').forEach(b=>{
-      b.classList.toggle('on', b.dataset.channel === 'SMS' || b.dataset.channel === 'TM');
-    });
+      state.channels = new Set();
+      document.querySelectorAll('.chk[data-channel]').forEach(b=> b.classList.remove('on'));
+    }
+
+    // 선택정보 동의 상태에 맞춰 DM/E-mail/FAX 잠금 여부를 다시 반영한다.
+    updateOptionalGating();
   }
 }
 
-/* 선택정보(optConsent)가 미동의면: 이메일, 팩스 채널만 자동으로 회색 처리 + 선택 해제 */
+/* 선택정보(optConsent)가 미동의면: DM/이메일 채널만 자동으로 회색 처리 + 선택 해제한다.
+   단, 선택정보 미동의가 곧 "마케팅 수신 채널 전체 미동의"를 의미하는 것은 아니므로
+   (예: SMS/TM은 계속 선택 가능) 채널을 임의로 "미동의"로 몰아서 확정하지 않는다. */
 function updateOptionalGating(){
   if(state.reqConsent === '미동의') return; // 필수정보 잠금이 우선 적용된 상태면 그대로 둔다
   const locked = state.optConsent === '미동의';
   const dm = document.getElementById('chk-ch-dm');
   const email = document.getElementById('chk-ch-email');
-  const fax = document.getElementById('chk-ch-fax');
 
-  [dm, email, fax].forEach(b=>{
+  [dm, email].forEach(b=>{
     b.classList.toggle('disabled', locked);
     if(locked) b.classList.remove('on');
   });
@@ -645,11 +651,6 @@ function updateOptionalGating(){
   if(locked){
     state.channels.delete('DM');
     state.channels.delete('E-mail');
-    state.channels.delete('FAX');
-    if(state.channels.size === 0){
-      state.channels.add('미동의');
-      document.getElementById('chk-ch-na').classList.add('on');
-    }
   }
 }
 
@@ -660,10 +661,29 @@ function updateChannelGating(){
 function handleChannelChkClick(el){
   if(el.classList.contains('disabled')) return; // 잠긴 채널은 클릭 무시
   const val = el.dataset.channel;
+
+  // DM은 주소, E-mail은 이메일이 실제로 입력되어 있어야 선택할 수 있다.
+  // (체크 해제는 항상 허용하고, 새로 체크할 때만 검사한다)
+  if(val === 'DM' && !state.channels.has('DM')){
+    const addr = (document.getElementById('address') || {}).value || '';
+    if(!addr.trim()){
+      showMessage('안내', 'DM 수신을 선택하시려면 먼저 주소를 입력해 주세요.');
+      return;
+    }
+  }
+  if(val === 'E-mail' && !state.channels.has('E-mail')){
+    const em = (document.getElementById('email') || {}).value || '';
+    if(!em.trim()){
+      showMessage('안내', 'E-mail 수신을 선택하시려면 먼저 이메일을 입력해 주세요.');
+      return;
+    }
+  }
+
   if(val === '미동의'){
     state.channels = new Set(['미동의']);
     document.querySelectorAll('.chk[data-channel]').forEach(b=>b.classList.remove('on'));
     el.classList.add('on');
+    showMessage('안내', '마케팅 수신 채널에 동의하지 않으실 경우, 이벤트·행사 관련 안내를 받으실 수 없습니다.');
   } else {
     state.channels.delete('미동의');
     document.getElementById('chk-ch-na').classList.remove('on');
