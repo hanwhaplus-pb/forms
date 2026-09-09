@@ -63,6 +63,11 @@
     position:absolute; left:0; width:100%; touch-action:none;
     top:50%; height:170%; transform:translateY(-50%);
   }
+  /* 서명(인) 칸: 왼쪽에 "성명" 칸이 붙어 있어 왼쪽으로는 넘치지 않게(left:0 유지)
+     오른쪽·위·아래로는 넉넉하게 확장해서 서명이 작게 눌려 보이지 않도록 한다. */
+  #signBox canvas{
+    width:260%; height:220%;
+  }
   .sigbox .hint{
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     color:#B4794A; pointer-events:none;
