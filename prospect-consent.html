@@ -633,17 +633,37 @@ document.getElementById('clearAllBtn').addEventListener('click', ()=>{
 
 /* ---------------- 검증 ---------------- */
 function validate(){
-  let ok = true;
+  const missing = [];
   const name = document.getElementById('name').value.trim();
   const mobile = document.getElementById('mobile').value.trim();
   document.getElementById('name').classList.remove('invalid');
   document.getElementById('mobile').classList.remove('invalid');
   signBox.classList.remove('invalid');
+  nameBox.classList.remove('invalid');
+  document.getElementById('chk-req-y').classList.remove('invalid');
+  document.getElementById('chk-req-n').classList.remove('invalid');
+  document.getElementById('chk-opt-y').classList.remove('invalid');
+  document.getElementById('chk-opt-n').classList.remove('invalid');
 
-  if(!name){ document.getElementById('name').classList.add('invalid'); ok = false; }
-  if(!mobile){ document.getElementById('mobile').classList.add('invalid'); ok = false; }
-  if(!signFinal.hasContent){ signBox.classList.add('invalid'); ok = false; }
-  return ok;
+  if(!name){ document.getElementById('name').classList.add('invalid'); missing.push('성명'); }
+  if(!mobile){ document.getElementById('mobile').classList.add('invalid'); missing.push('휴대폰번호'); }
+  let penMissing = false;
+  if(!nameFinal.hasContent){ nameBox.classList.add('invalid'); penMissing = true; }
+  if(!signFinal.hasContent){ signBox.classList.add('invalid'); penMissing = true; }
+  if(penMissing) missing.push('(자필 기재)성명 및 서명');
+  let consentMissing = false;
+  if(!state.reqConsent){
+    document.getElementById('chk-req-y').classList.add('invalid');
+    document.getElementById('chk-req-n').classList.add('invalid');
+    consentMissing = true;
+  }
+  if(!state.optConsent){
+    document.getElementById('chk-opt-y').classList.add('invalid');
+    document.getElementById('chk-opt-n').classList.add('invalid');
+    consentMissing = true;
+  }
+  if(consentMissing) missing.push('필수·선택정보 동의여부');
+  return { ok: missing.length === 0, missing: missing };
 }
 
 /* ---------------- PDF 저장 (화면 그대로 캡처, 외부 라이브러리 없이 직접 PDF 생성) ---------------- */
@@ -948,8 +968,9 @@ function resetForm(){
 }
 
 document.getElementById('saveBtn').addEventListener('click', async ()=>{
-  if(!validate()){
-    showMessage('확인 필요', '성명, 휴대폰번호, 서명(탭하여 작성)을 확인해 주세요.');
+  const vr = validate();
+  if(!vr.ok){
+    showMessage('확인 필요', vr.missing.join(', ') + '을(를) 확인해 주세요.');
     return;
   }
   showOverlayLoading();
@@ -964,8 +985,9 @@ document.getElementById('saveBtn').addEventListener('click', async ()=>{
 });
 
 document.getElementById('exportBtn').addEventListener('click', async ()=>{
-  if(!validate()){
-    showMessage('확인 필요', '성명, 휴대폰번호, 서명(탭하여 작성)을 확인해 주세요.');
+  const vr = validate();
+  if(!vr.ok){
+    showMessage('확인 필요', vr.missing.join(', ') + '을(를) 확인해 주세요.');
     return;
   }
   showOverlayLoading();
