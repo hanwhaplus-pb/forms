@@ -225,6 +225,18 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="faxModal">
+  <div class="modal-card">
+    <h3>FAX 회신번호 입력</h3>
+    <p style="font-size:13px; color:#555; line-height:1.7; margin:0 0 10px;">FAX로 받으실 회신 번호를 입력해 주세요.</p>
+    <input type="tel" id="faxNumberInput" placeholder="예: 02-1234-5678" style="width:100%; height:44px; border:1.5px solid #B9B2A4; border-radius:4px; padding:0 12px; font-size:14px; font-family:inherit; box-sizing:border-box;">
+    <div class="modal-actions">
+      <button id="faxCancelBtn">취소</button>
+      <button class="primary" id="faxOkBtn">확인</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function initConsentForm(){
 
@@ -329,7 +341,7 @@ window.addEventListener('load', syncFontSizes);
 syncFontSizes();
 
 /* ---------------- 상태 ---------------- */
-const state = { docType:"신규", reqConsent:null, optConsent:null, channels:new Set() };
+const state = { docType:"신규", reqConsent:null, optConsent:null, channels:new Set(), faxNumber:'' };
 
 function handleGroupChkClick(el){
   if(el.classList.contains('disabled')) return; // 잠긴 옵션은 클릭 무시
@@ -348,7 +360,8 @@ function handleGroupChkClick(el){
 
 /* 필수정보(reqConsent)가 미동의로 바뀌면:
    - 마케팅 수신동의(선택정보/optConsent)도 자동으로 미동의로 전환
-   - optConsent 버튼 자체와 그 아래 모든 채널 선택지를 잠금(클릭 불가) */
+   - optConsent 버튼 자체와 그 아래 모든 채널 선택지를 잠금(클릭 불가)
+   반대로 동의로 바뀌면 잠금만 해제하며, 선택정보/채널을 자동으로 동의 처리하지는 않는다. */
 function updateRequiredGating(){
   const locked = state.reqConsent === '미동의';
 
@@ -368,16 +381,19 @@ function updateRequiredGating(){
   } else {
     document.querySelectorAll('.chk[data-channel]').forEach(b=> b.classList.remove('disabled'));
 
-    // 필수정보 동의 시 선택정보 동의 및 마케팅 채널도 함께 동의 처리
-    state.optConsent = '동의';
-    document.getElementById('chk-opt-y').classList.add('on');
-    document.getElementById('chk-opt-n').classList.remove('on');
-
-    state.channels = new Set(['SMS','TM']);
-    document.querySelectorAll('.chk[data-channel]').forEach(b=>{
-      b.classList.toggle('on', b.dataset.channel === 'SMS' || b.dataset.channel === 'TM');
-    });
+    // 필수정보 동의는 잠금만 해제할 뿐, 선택정보/마케팅 채널을 자동으로 동의 처리하지 않는다.
+    // 다만 직전에 미동의로 강제됐던 값은 초기화해서 고객이 직접 다시 선택하도록 한다.
+    if(state.optConsent === '미동의'){
+      state.optConsent = null;
+      document.getElementById('chk-opt-y').classList.remove('on');
+      document.getElementById('chk-opt-n').classList.remove('on');
+    }
+    if(state.channels.has('미동의')){
+      state.channels = new Set();
+      document.querySelectorAll('.chk[data-channel]').forEach(b=> b.classList.remove('on'));
+    }
   }
+  updateOptionalGating();
 }
 
 /* 선택정보(optConsent)가 미동의면: 이메일, 팩스 채널만 자동으로 회색 처리 + 선택 해제 */
@@ -387,6 +403,7 @@ function updateOptionalGating(){
   const dm = document.getElementById('chk-ch-dm');
   const email = document.getElementById('chk-ch-email');
   const fax = document.getElementById('chk-ch-fax');
+  const na = document.getElementById('chk-ch-na');
 
   [dm, email, fax].forEach(b=>{
     b.classList.toggle('disabled', locked);
@@ -397,15 +414,33 @@ function updateOptionalGating(){
     state.channels.delete('DM');
     state.channels.delete('E-mail');
     state.channels.delete('FAX');
+    state.faxNumber = '';
     if(state.channels.size === 0){
       state.channels.add('미동의');
-      document.getElementById('chk-ch-na').classList.add('on');
+      na.classList.add('on');
     }
+  }
+
+  // 필수/선택정보 모두 동의한 경우, 마케팅 채널에서 "미동의"는 선택할 수 없다.
+  const optAgreed = state.optConsent === '동의';
+  na.classList.toggle('disabled', optAgreed);
+  if(optAgreed && state.channels.has('미동의')){
+    state.channels.delete('미동의');
+    na.classList.remove('on');
   }
 }
 
 function updateChannelGating(){
   updateRequiredGating();
+}
+
+let pendingChannel = null; // 주소/이메일 미입력으로 보류 중인 채널 선택 { val, el }
+
+function applyChannelOn(val, el){
+  state.channels.delete('미동의');
+  document.getElementById('chk-ch-na').classList.remove('on');
+  state.channels.add(val);
+  el.classList.add('on');
 }
 
 function handleChannelChkClick(el){
@@ -415,17 +450,87 @@ function handleChannelChkClick(el){
     state.channels = new Set(['미동의']);
     document.querySelectorAll('.chk[data-channel]').forEach(b=>b.classList.remove('on'));
     el.classList.add('on');
+    pendingChannel = null;
+    return;
+  }
+
+  const turningOn = !state.channels.has(val);
+
+  if(turningOn && val === 'FAX'){
+    openFaxModal(el);
+    return; // FAX는 팝업에서 회신번호를 입력하고 확인을 눌러야 실제로 선택된다
+  }
+
+  if(turningOn && val === 'DM' && !document.getElementById('address').value.trim()){
+    pendingChannel = { val:'DM', el:el };
+    showMessage('안내', 'DM(우편) 수신에 동의하시려면 주소를 입력해 주세요.', {
+      onConfirm: function(){
+        const addr = document.getElementById('address');
+        addr.classList.add('invalid');
+        addr.focus();
+      }
+    });
+    return; // 주소를 입력하기 전까지는 체크되지 않고, 입력하는 즉시 자동으로 체크된다
+  }
+  if(turningOn && val === 'E-mail' && !document.getElementById('email').value.trim()){
+    pendingChannel = { val:'E-mail', el:el };
+    showMessage('안내', '이메일 수신에 동의하시려면 이메일 주소를 입력해 주세요.', {
+      onConfirm: function(){
+        const em = document.getElementById('email');
+        em.classList.add('invalid');
+        em.focus();
+      }
+    });
+    return; // 이메일을 입력하기 전까지는 체크되지 않고, 입력하는 즉시 자동으로 체크된다
+  }
+
+  if(turningOn){
+    applyChannelOn(val, el);
   } else {
-    state.channels.delete('미동의');
-    document.getElementById('chk-ch-na').classList.remove('on');
-    if(state.channels.has(val)){ state.channels.delete(val); el.classList.remove('on'); }
-    else { state.channels.add(val); el.classList.add('on'); }
-    if(state.channels.size === 0){
-      state.channels.add('미동의');
-      document.getElementById('chk-ch-na').classList.add('on');
-    }
+    state.channels.delete(val);
+    el.classList.remove('on');
+    if(val === 'FAX') state.faxNumber = '';
+    if(pendingChannel && pendingChannel.val === val) pendingChannel = null;
+  }
+
+  // 필수/선택정보 모두 동의한 상태라면 마케팅 채널 "미동의"로는 되돌리지 않는다.
+  if(state.channels.size === 0 && state.optConsent !== '동의'){
+    state.channels.add('미동의');
+    document.getElementById('chk-ch-na').classList.add('on');
   }
 }
+
+/* ---------------- FAX 회신번호 입력 팝업 ---------------- */
+const faxModal = document.getElementById('faxModal');
+const faxNumberInput = document.getElementById('faxNumberInput');
+let pendingFaxEl = null;
+
+function openFaxModal(el){
+  pendingFaxEl = el;
+  faxNumberInput.value = state.faxNumber || '';
+  faxModal.classList.add('show');
+  setTimeout(()=> faxNumberInput.focus(), 50);
+}
+function closeFaxModal(){
+  faxModal.classList.remove('show');
+  pendingFaxEl = null;
+}
+document.getElementById('faxCancelBtn').addEventListener('click', closeFaxModal);
+document.getElementById('faxOkBtn').addEventListener('click', ()=>{
+  const num = faxNumberInput.value.trim();
+  if(!num){
+    showMessage('안내', 'FAX 회신번호를 입력해 주세요.');
+    return;
+  }
+  state.faxNumber = num;
+  if(pendingFaxEl){
+    state.channels.delete('미동의');
+    document.getElementById('chk-ch-na').classList.remove('on');
+    state.channels.add('FAX');
+    pendingFaxEl.classList.add('on');
+  }
+  closeFaxModal();
+});
 
 // 체크박스류는 클릭 시점에 실제 화면의 요소를 찾아 처리(이벤트 위임)한다.
 // 게시판에 삽입되어 DOM이 재구성되거나 초기화 시점이 어긋나도 항상 동작하도록 하기 위함.
@@ -445,8 +550,18 @@ document.getElementById('chk-doc-new').classList.add('on');
   document.getElementById('dayInput').value = d.getDate();
 })();
 
-['name','mobile'].forEach(id=>{
-  document.getElementById(id).addEventListener('input', function(){ this.classList.remove('invalid'); });
+['name','mobile','address','email'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', function(){
+    this.classList.remove('invalid');
+    if(id === 'address' && this.value.trim() && pendingChannel && pendingChannel.val === 'DM'){
+      applyChannelOn(pendingChannel.val, pendingChannel.el);
+      pendingChannel = null;
+    }
+    if(id === 'email' && this.value.trim() && pendingChannel && pendingChannel.val === 'E-mail'){
+      applyChannelOn(pendingChannel.val, pendingChannel.el);
+      pendingChannel = null;
+    }
+  });
 });
 
 /* ---------------- 서명 (탭하면 팝업에서 얇은 볼펜 느낌으로 서명) ---------------- */
@@ -920,6 +1035,7 @@ async function submitConsent(){
   fd.append('phone', phone);
   fd.append('filename', filename);
   fd.append('pdfBase64', base64);
+  fd.append('faxNumber', state.faxNumber || '');
 
   /* Apps Script 웹앱은 CORS 프리플라이트를 지원하지 않아 mode:'no-cors'로 보냄.
      이 모드에서는 응답 내용을 읽을 수 없어 서버 안쪽 처리 결과까지는 확인이 안 되지만,
@@ -956,6 +1072,9 @@ function resetForm(){
   document.getElementById('chk-doc-new').classList.add('on');
   state.docType='신규'; state.reqConsent=null; state.optConsent=null;
   state.channels = new Set();
+  state.faxNumber = '';
+  faxNumberInput.value = '';
+  pendingChannel = null;
   nameFinal.clear();
   signFinal.clear();
   nameHint.style.display='flex';
