@@ -759,6 +759,11 @@ function validate(){
   document.getElementById('chk-req-n').classList.remove('invalid');
   document.getElementById('chk-opt-y').classList.remove('invalid');
   document.getElementById('chk-opt-n').classList.remove('invalid');
+  const channelIds = ['chk-ch-na','chk-ch-dm','chk-ch-sms','chk-ch-email','chk-ch-tm','chk-ch-fax','chk-ch-night'];
+  channelIds.forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.classList.remove('invalid');
+  });
 
   if(!name){ document.getElementById('name').classList.add('invalid'); missing.push('성명'); }
   if(!mobile){ document.getElementById('mobile').classList.add('invalid'); missing.push('휴대폰번호'); }
@@ -778,6 +783,15 @@ function validate(){
     consentMissing = true;
   }
   if(consentMissing) missing.push('필수·선택정보 동의여부');
+
+  if(state.channels.size === 0){
+    channelIds.forEach(function(id){
+      const el = document.getElementById(id);
+      if(el) el.classList.add('invalid');
+    });
+    missing.push('마케팅 수신동의 채널');
+  }
+
   return { ok: missing.length === 0, missing: missing };
 }
 
