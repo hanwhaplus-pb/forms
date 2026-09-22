@@ -225,52 +225,27 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="faxModal">
-  <div class="modal-card">
-    <h3>FAX 회신번호 입력</h3>
-    <p style="font-size:13px; color:#555; line-height:1.7; margin:0 0 10px;">FAX로 받으실 회신 번호를 입력해 주세요.</p>
-    <input type="tel" id="faxNumberInput" placeholder="예: 02-1234-5678" style="width:100%; height:44px; border:1.5px solid #B9B2A4; border-radius:4px; padding:0 12px; font-size:14px; font-family:inherit; box-sizing:border-box;">
-    <div class="modal-actions">
-      <button id="faxCancelBtn">취소</button>
-      <button class="primary" id="faxOkBtn">확인</button>
-    </div>
-  </div>
-</div>
-
 <script>
 function initConsentForm(){
 
-/* ---------------- 세미나 등록 화면에서 넘어온 값 자동 입력 ----------------
-   주소의 # 뒤에 담겨 오므로 서버 기록·리퍼러에는 남지 않는다.
-   읽어들인 직후 주소에서 지워 고객 단말 방문기록에도 남기지 않는다.
-   빈 칸일 때만 채우므로 고객이 고쳐 쓴 값을 덮어쓰지 않는다. ------------- */
-try{
-  var SEMINAR = {};   /* 세미나 등록 화면에서 넘어온 값 보관 */
-  var REG_ENDPOINT = 'https://script.google.com/macros/s/AKfycbwRtmBmRCqLHbT2Vj7R2hpK_cK6YOUpi_53_tZSvgMbmqQgTlFjngJvvX186pgfTovTvQ/exec';
-  var _hs = location.hash ? location.hash.slice(1) : '';
-  if(_hs){
-    var _pm = SEMINAR;
-    _hs.split('&').forEach(function(kv){
-      var i = kv.indexOf('=');
-      if(i > 0){
-        try{ _pm[kv.slice(0,i)] = decodeURIComponent(kv.slice(i+1).replace(/\+/g,' ')); }catch(_){}
-      }
-    });
-    /* 넘어온 항목 → 이 문서의 칸 (작성일은 이미 자동 입력되므로 건드리지 않음) */
-    [['name','name'], ['mobile','mobile']].forEach(function(m){
-      var el = document.getElementById(m[1]), v = _pm[m[0]];
-      if(el && v && !el.value){
-        el.value = v;
-        el.dispatchEvent(new Event('input',  {bubbles:true}));
-        el.dispatchEvent(new Event('change', {bubbles:true}));
-      }
-    });
-    if(window.history && history.replaceState){
-      history.replaceState(null, '', location.pathname + location.search);
-    }
-  }
-}catch(_e){ /* 자동 입력이 실패해도 직접 타이핑은 그대로 되어야 한다 */ }
-
+/* 초청장(THE ART SEMINAR 등)에서 해시(#token=...)로 넘어온 토큰.
+   제출이 실제로 끝났을 때만 localStorage에 완료 신호를 남겨,
+   초청장 쪽 "등록하기" 버튼이 그 신호를 보고 풀리도록 한다. */
+var consentToken = null;
+(function(){
+  var h = location.hash.replace(/^#/, '');
+  h.split('&').forEach(function(kv){
+    var idx = kv.indexOf('=');
+    if(idx === -1) return;
+    var k = decodeURIComponent(kv.slice(0, idx));
+    var v = decodeURIComponent(kv.slice(idx + 1));
+    if(k === 'token') consentToken = v;
+  });
+})();
+function markConsentSubmitted(){
+  if(!consentToken) return;
+  try{ localStorage.setItem('consent_done_' + consentToken, String(Date.now())); }catch(e){}
+}
 
 const topbarMsg = document.getElementById('topbarMsg');
 if(topbarMsg) topbarMsg.textContent = '✓ 정상 작동 중 — 빈칸은 타이핑으로 입력하고, 하단 서명란만 직접 펜으로 서명해 주세요.';
@@ -341,7 +316,7 @@ window.addEventListener('load', syncFontSizes);
 syncFontSizes();
 
 /* ---------------- 상태 ---------------- */
-const state = { docType:"신규", reqConsent:null, optConsent:null, channels:new Set(), faxNumber:'' };
+const state = { docType:"신규", reqConsent:"동의", optConsent:"동의", channels:new Set(["SMS","TM"]) };
 
 function handleGroupChkClick(el){
   if(el.classList.contains('disabled')) return; // 잠긴 옵션은 클릭 무시
@@ -349,19 +324,13 @@ function handleGroupChkClick(el){
   document.querySelectorAll(`.chk[data-group="${group}"]`).forEach(b=>{ b.classList.remove('on'); b.classList.remove('invalid'); });
   el.classList.add('on');
   state[group] = val;
-  if(group === 'reqConsent'){
-    updateRequiredGating();
-    if(val === '미동의'){
-      showMessage('안내', '개인정보 수집·이용에 관한 동의를 거부하실 수 있습니다. 다만, 동의하지 않으실 경우 "상품·서비스 안내 및 마케팅 활용" 목적으로 가망고객 관리가 불가능합니다.');
-    }
-  }
+  if(group === 'reqConsent') updateRequiredGating();
   if(group === 'optConsent') updateOptionalGating();
 }
 
 /* 필수정보(reqConsent)가 미동의로 바뀌면:
    - 마케팅 수신동의(선택정보/optConsent)도 자동으로 미동의로 전환
-   - optConsent 버튼 자체와 그 아래 모든 채널 선택지를 잠금(클릭 불가)
-   반대로 동의로 바뀌면 잠금만 해제하며, 선택정보/채널을 자동으로 동의 처리하지는 않는다. */
+   - optConsent 버튼 자체와 그 아래 모든 채널 선택지를 잠금(클릭 불가) */
 function updateRequiredGating(){
   const locked = state.reqConsent === '미동의';
 
@@ -380,20 +349,8 @@ function updateRequiredGating(){
     });
   } else {
     document.querySelectorAll('.chk[data-channel]').forEach(b=> b.classList.remove('disabled'));
-
-    // 필수정보 동의는 잠금만 해제할 뿐, 선택정보/마케팅 채널을 자동으로 동의 처리하지 않는다.
-    // 다만 직전에 미동의로 강제됐던 값은 초기화해서 고객이 직접 다시 선택하도록 한다.
-    if(state.optConsent === '미동의'){
-      state.optConsent = null;
-      document.getElementById('chk-opt-y').classList.remove('on');
-      document.getElementById('chk-opt-n').classList.remove('on');
-    }
-    if(state.channels.has('미동의')){
-      state.channels = new Set();
-      document.querySelectorAll('.chk[data-channel]').forEach(b=> b.classList.remove('on'));
-    }
+    updateOptionalGating();
   }
-  updateOptionalGating();
 }
 
 /* 선택정보(optConsent)가 미동의면: 이메일, 팩스 채널만 자동으로 회색 처리 + 선택 해제 */
@@ -403,7 +360,6 @@ function updateOptionalGating(){
   const dm = document.getElementById('chk-ch-dm');
   const email = document.getElementById('chk-ch-email');
   const fax = document.getElementById('chk-ch-fax');
-  const na = document.getElementById('chk-ch-na');
 
   [dm, email, fax].forEach(b=>{
     b.classList.toggle('disabled', locked);
@@ -414,33 +370,15 @@ function updateOptionalGating(){
     state.channels.delete('DM');
     state.channels.delete('E-mail');
     state.channels.delete('FAX');
-    state.faxNumber = '';
     if(state.channels.size === 0){
       state.channels.add('미동의');
-      na.classList.add('on');
+      document.getElementById('chk-ch-na').classList.add('on');
     }
-  }
-
-  // 필수/선택정보 모두 동의한 경우, 마케팅 채널에서 "미동의"는 선택할 수 없다.
-  const optAgreed = state.optConsent === '동의';
-  na.classList.toggle('disabled', optAgreed);
-  if(optAgreed && state.channels.has('미동의')){
-    state.channels.delete('미동의');
-    na.classList.remove('on');
   }
 }
 
 function updateChannelGating(){
   updateRequiredGating();
-}
-
-let pendingChannel = null; // 주소/이메일 미입력으로 보류 중인 채널 선택 { val, el }
-
-function applyChannelOn(val, el){
-  state.channels.delete('미동의');
-  document.getElementById('chk-ch-na').classList.remove('on');
-  state.channels.add(val);
-  el.classList.add('on');
 }
 
 function handleChannelChkClick(el){
@@ -450,87 +388,17 @@ function handleChannelChkClick(el){
     state.channels = new Set(['미동의']);
     document.querySelectorAll('.chk[data-channel]').forEach(b=>b.classList.remove('on'));
     el.classList.add('on');
-    pendingChannel = null;
-    return;
-  }
-
-  const turningOn = !state.channels.has(val);
-
-  if(turningOn && val === 'FAX'){
-    openFaxModal(el);
-    return; // FAX는 팝업에서 회신번호를 입력하고 확인을 눌러야 실제로 선택된다
-  }
-
-  if(turningOn && val === 'DM' && !document.getElementById('address').value.trim()){
-    pendingChannel = { val:'DM', el:el };
-    showMessage('안내', 'DM(우편) 수신에 동의하시려면 주소를 입력해 주세요.', {
-      onConfirm: function(){
-        const addr = document.getElementById('address');
-        addr.classList.add('invalid');
-        addr.focus();
-      }
-    });
-    return; // 주소를 입력하기 전까지는 체크되지 않고, 입력하는 즉시 자동으로 체크된다
-  }
-  if(turningOn && val === 'E-mail' && !document.getElementById('email').value.trim()){
-    pendingChannel = { val:'E-mail', el:el };
-    showMessage('안내', '이메일 수신에 동의하시려면 이메일 주소를 입력해 주세요.', {
-      onConfirm: function(){
-        const em = document.getElementById('email');
-        em.classList.add('invalid');
-        em.focus();
-      }
-    });
-    return; // 이메일을 입력하기 전까지는 체크되지 않고, 입력하는 즉시 자동으로 체크된다
-  }
-
-  if(turningOn){
-    applyChannelOn(val, el);
   } else {
-    state.channels.delete(val);
-    el.classList.remove('on');
-    if(val === 'FAX') state.faxNumber = '';
-    if(pendingChannel && pendingChannel.val === val) pendingChannel = null;
-  }
-
-  // 필수/선택정보 모두 동의한 상태라면 마케팅 채널 "미동의"로는 되돌리지 않는다.
-  if(state.channels.size === 0 && state.optConsent !== '동의'){
-    state.channels.add('미동의');
-    document.getElementById('chk-ch-na').classList.add('on');
-  }
-}
-
-/* ---------------- FAX 회신번호 입력 팝업 ---------------- */
-const faxModal = document.getElementById('faxModal');
-const faxNumberInput = document.getElementById('faxNumberInput');
-let pendingFaxEl = null;
-
-function openFaxModal(el){
-  pendingFaxEl = el;
-  faxNumberInput.value = state.faxNumber || '';
-  faxModal.classList.add('show');
-  setTimeout(()=> faxNumberInput.focus(), 50);
-}
-function closeFaxModal(){
-  faxModal.classList.remove('show');
-  pendingFaxEl = null;
-}
-document.getElementById('faxCancelBtn').addEventListener('click', closeFaxModal);
-document.getElementById('faxOkBtn').addEventListener('click', ()=>{
-  const num = faxNumberInput.value.trim();
-  if(!num){
-    showMessage('안내', 'FAX 회신번호를 입력해 주세요.');
-    return;
-  }
-  state.faxNumber = num;
-  if(pendingFaxEl){
     state.channels.delete('미동의');
     document.getElementById('chk-ch-na').classList.remove('on');
-    state.channels.add('FAX');
-    pendingFaxEl.classList.add('on');
+    if(state.channels.has(val)){ state.channels.delete(val); el.classList.remove('on'); }
+    else { state.channels.add(val); el.classList.add('on'); }
+    if(state.channels.size === 0){
+      state.channels.add('미동의');
+      document.getElementById('chk-ch-na').classList.add('on');
+    }
   }
-  closeFaxModal();
-});
+}
 
 // 체크박스류는 클릭 시점에 실제 화면의 요소를 찾아 처리(이벤트 위임)한다.
 // 게시판에 삽입되어 DOM이 재구성되거나 초기화 시점이 어긋나도 항상 동작하도록 하기 위함.
@@ -542,6 +410,10 @@ document.addEventListener('click', function(e){
 });
 
 document.getElementById('chk-doc-new').classList.add('on');
+document.getElementById('chk-req-y').classList.add('on');
+document.getElementById('chk-opt-y').classList.add('on');
+document.getElementById('chk-ch-sms').classList.add('on');
+document.getElementById('chk-ch-tm').classList.add('on');
 
 (function(){
   const d = new Date();
@@ -550,18 +422,8 @@ document.getElementById('chk-doc-new').classList.add('on');
   document.getElementById('dayInput').value = d.getDate();
 })();
 
-['name','mobile','address','email'].forEach(id=>{
-  document.getElementById(id).addEventListener('input', function(){
-    this.classList.remove('invalid');
-    if(id === 'address' && this.value.trim() && pendingChannel && pendingChannel.val === 'DM'){
-      applyChannelOn(pendingChannel.val, pendingChannel.el);
-      pendingChannel = null;
-    }
-    if(id === 'email' && this.value.trim() && pendingChannel && pendingChannel.val === 'E-mail'){
-      applyChannelOn(pendingChannel.val, pendingChannel.el);
-      pendingChannel = null;
-    }
-  });
+['name','mobile'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', function(){ this.classList.remove('invalid'); });
 });
 
 /* ---------------- 서명 (탭하면 팝업에서 얇은 볼펜 느낌으로 서명) ---------------- */
@@ -748,51 +610,17 @@ document.getElementById('clearAllBtn').addEventListener('click', ()=>{
 
 /* ---------------- 검증 ---------------- */
 function validate(){
-  const missing = [];
+  let ok = true;
   const name = document.getElementById('name').value.trim();
   const mobile = document.getElementById('mobile').value.trim();
   document.getElementById('name').classList.remove('invalid');
   document.getElementById('mobile').classList.remove('invalid');
   signBox.classList.remove('invalid');
-  nameBox.classList.remove('invalid');
-  document.getElementById('chk-req-y').classList.remove('invalid');
-  document.getElementById('chk-req-n').classList.remove('invalid');
-  document.getElementById('chk-opt-y').classList.remove('invalid');
-  document.getElementById('chk-opt-n').classList.remove('invalid');
-  const channelIds = ['chk-ch-na','chk-ch-dm','chk-ch-sms','chk-ch-email','chk-ch-tm','chk-ch-fax','chk-ch-night'];
-  channelIds.forEach(function(id){
-    const el = document.getElementById(id);
-    if(el) el.classList.remove('invalid');
-  });
 
-  if(!name){ document.getElementById('name').classList.add('invalid'); missing.push('성명'); }
-  if(!mobile){ document.getElementById('mobile').classList.add('invalid'); missing.push('휴대폰번호'); }
-  let penMissing = false;
-  if(!nameFinal.hasContent){ nameBox.classList.add('invalid'); penMissing = true; }
-  if(!signFinal.hasContent){ signBox.classList.add('invalid'); penMissing = true; }
-  if(penMissing) missing.push('(자필 기재)성명 및 서명');
-  let consentMissing = false;
-  if(!state.reqConsent){
-    document.getElementById('chk-req-y').classList.add('invalid');
-    document.getElementById('chk-req-n').classList.add('invalid');
-    consentMissing = true;
-  }
-  if(!state.optConsent){
-    document.getElementById('chk-opt-y').classList.add('invalid');
-    document.getElementById('chk-opt-n').classList.add('invalid');
-    consentMissing = true;
-  }
-  if(consentMissing) missing.push('필수·선택정보 동의여부');
-
-  if(state.channels.size === 0){
-    channelIds.forEach(function(id){
-      const el = document.getElementById(id);
-      if(el) el.classList.add('invalid');
-    });
-    missing.push('마케팅 수신동의 채널');
-  }
-
-  return { ok: missing.length === 0, missing: missing };
+  if(!name){ document.getElementById('name').classList.add('invalid'); ok = false; }
+  if(!mobile){ document.getElementById('mobile').classList.add('invalid'); ok = false; }
+  if(!signFinal.hasContent){ signBox.classList.add('invalid'); ok = false; }
+  return ok;
 }
 
 /* ---------------- PDF 저장 (화면 그대로 캡처, 외부 라이브러리 없이 직접 PDF 생성) ---------------- */
@@ -1011,28 +839,6 @@ function blobToBase64(blob){
 
 /* "제출하기" 버튼용: PDF를 만들어 자동으로 pluspb@hanwha.com에 전송한다.
    전송에 실패하면 예외를 던지며, 클릭 핸들러 쪽에서 "PDF로 저장 후 개별 전달" 안내를 보여준다. */
-/* 동의서 제출이 끝나면 참가 등록까지 여기서 마무리한다.
-   고객이 등록 화면으로 돌아가지 않아도 되도록. */
-async function registerSeminar(){
-  if(!SEMINAR.name || !SEMINAR.mobile) return 'skip';   /* 동의서만 단독으로 연 경우 */
-
-  var fd = new FormData();
-  fd.append('name',    SEMINAR.name);
-  fd.append('phone',   SEMINAR.mobile);
-  fd.append('year',    SEMINAR.year    || '');
-  fd.append('org',     SEMINAR.org     || '');
-  fd.append('meal',    SEMINAR.meal    || '');
-  fd.append('consent', SEMINAR.consent || '');
-  fd.append('event',   SEMINAR.event   || '');
-
-  var res = await fetch(REG_ENDPOINT, { method:'POST', body: fd });
-  var txt = await res.text();
-  var j = null;
-  try{ j = JSON.parse(txt); }catch(_){}
-  if(j && j.ok) return 'ok';
-  throw new Error(j && j.error ? j.error : '등록 저장 실패');
-}
-
 async function submitConsent(){
   if(!APPS_SCRIPT_URL || APPS_SCRIPT_URL === "YOUR_APPS_SCRIPT_WEB_APP_URL_HERE"){
     throw new Error('전송 설정이 되어 있지 않습니다.');
@@ -1049,7 +855,6 @@ async function submitConsent(){
   fd.append('phone', phone);
   fd.append('filename', filename);
   fd.append('pdfBase64', base64);
-  fd.append('faxNumber', state.faxNumber || '');
 
   /* Apps Script 웹앱은 CORS 프리플라이트를 지원하지 않아 mode:'no-cors'로 보냄.
      이 모드에서는 응답 내용을 읽을 수 없어 서버 안쪽 처리 결과까지는 확인이 안 되지만,
@@ -1084,11 +889,12 @@ function resetForm(){
   document.querySelectorAll('.txt').forEach(i=>i.value='');
   document.querySelectorAll('.chk').forEach(b=>{ b.classList.remove('on'); b.classList.remove('disabled'); });
   document.getElementById('chk-doc-new').classList.add('on');
-  state.docType='신규'; state.reqConsent=null; state.optConsent=null;
-  state.channels = new Set();
-  state.faxNumber = '';
-  faxNumberInput.value = '';
-  pendingChannel = null;
+  document.getElementById('chk-req-y').classList.add('on');
+  document.getElementById('chk-opt-y').classList.add('on');
+  document.getElementById('chk-ch-sms').classList.add('on');
+  document.getElementById('chk-ch-tm').classList.add('on');
+  state.docType='신규'; state.reqConsent='동의'; state.optConsent='동의';
+  state.channels = new Set(['SMS', 'TM']);
   nameFinal.clear();
   signFinal.clear();
   nameHint.style.display='flex';
@@ -1101,9 +907,8 @@ function resetForm(){
 }
 
 document.getElementById('saveBtn').addEventListener('click', async ()=>{
-  const vr = validate();
-  if(!vr.ok){
-    showMessage('확인 필요', vr.missing.join(', ') + '을(를) 확인해 주세요.');
+  if(!validate()){
+    showMessage('확인 필요', '성명, 휴대폰번호, 서명(탭하여 작성)을 확인해 주세요.');
     return;
   }
   showOverlayLoading();
@@ -1118,35 +923,16 @@ document.getElementById('saveBtn').addEventListener('click', async ()=>{
 });
 
 document.getElementById('exportBtn').addEventListener('click', async ()=>{
-  const vr = validate();
-  if(!vr.ok){
-    showMessage('확인 필요', vr.missing.join(', ') + '을(를) 확인해 주세요.');
+  if(!validate()){
+    showMessage('확인 필요', '성명, 휴대폰번호, 서명(탭하여 작성)을 확인해 주세요.');
     return;
   }
   showOverlayLoading();
   try{
     await submitConsent();
-
-    /* 동의서가 접수됐으면 참가 등록까지 이어서 처리한다.
-       등록만 실패한 경우에도 동의서는 이미 접수된 상태이므로 그 사실을 함께 알린다. */
-    var reg = 'skip';
-    try{ reg = await registerSeminar(); }
-    catch(regErr){ reg = 'fail'; console.error(regErr); }
-
+    markConsentSubmitted();
     document.getElementById('overlay').classList.remove('show');
-
-    if(reg === 'ok'){
-      showMessage('접수 완료',
-        '동의서 제출과 참가 등록이 모두 완료되었습니다.\n\n' +
-        '상세 안내를 위해 PLUS PB가 별도로 연락드릴 예정입니다.\n' +
-        '등록 화면으로 돌아가실 필요는 없습니다.');
-    }else if(reg === 'fail'){
-      showMessage('동의서만 접수됨',
-        '동의서는 정상 접수되었으나, 참가 등록 저장에 실패했습니다.\n\n' +
-        '등록 화면으로 돌아가 "등록 완료"를 눌러주세요.');
-    }else{
-      showMessage('제출 완료', '제출이 완료되었습니다. 감사합니다.');
-    }
+    showMessage('제출 완료', '제출이 완료되었습니다. 감사합니다.');
   }catch(err){
     document.getElementById('overlay').classList.remove('show');
     showMessage(
