@@ -465,7 +465,13 @@ function initConsentForm(){
    빈 칸일 때만 채우므로 고객이 고쳐 쓴 값을 덮어쓰지 않는다. ------------- */
 try{
   var SEMINAR = {};   /* 세미나 등록 화면에서 넘어온 값 보관 */
-  var REG_ENDPOINT = 'https://script.google.com/macros/s/AKfycbwRtmBmRCqLHbT2Vj7R2hpK_cK6YOUpi_53_tZSvgMbmqQgTlFjngJvvX186pgfTovTvQ/exec';
+  /* 행사별 참가등록 시트. 초청장이 #reg=키 를 넘기면 해당 시트로, 없으면 기존(THE ART) 시트로 보낸다.
+     임의 주소를 받지 않고 아래 목록에 있는 것만 쓴다. */
+  var REG_ENDPOINTS = {
+    art:   'https://script.google.com/macros/s/AKfycbwRtmBmRCqLHbT2Vj7R2hpK_cK6YOUpi_53_tZSvgMbmqQgTlFjngJvvX186pgfTovTvQ/exec',
+    tech2: 'https://script.google.com/macros/s/AKfycbx2yRHUYEVRJUm_Xdp7rDAwj_ITcrzjvT9CWyPTe7c2bQ-ed5dwVdMdd-h7iU9D6qpzNw/exec'
+  };
+  var REG_ENDPOINT = REG_ENDPOINTS.art;
   var _hs = location.hash ? location.hash.slice(1) : '';
   if(_hs){
     var _pm = SEMINAR;
@@ -484,6 +490,7 @@ try{
         el.dispatchEvent(new Event('change', {bubbles:true}));
       }
     });
+    if(_pm.reg && REG_ENDPOINTS.hasOwnProperty(_pm.reg)) REG_ENDPOINT = REG_ENDPOINTS[_pm.reg];
     if(window.history && history.replaceState){
       history.replaceState(null, '', location.pathname + location.search);
     }
